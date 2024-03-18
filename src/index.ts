@@ -3,7 +3,7 @@ import { RekognitionClient, DetectFacesCommand, FaceDetail } from "@aws-sdk/clie
 import { Image, } from "@aws-sdk/client-rekognition";
 import * as fs from 'node:fs';
 import path from 'node:path';
-import sharp, { OverlayOptions, Sharp } from 'sharp';
+import sharp, { OverlayOptions } from 'sharp';
 
 const client = new RekognitionClient(awsConfig);
 
@@ -14,6 +14,7 @@ function getImageFromBuffer(imageBuffer: Buffer): Image {
   return image;
 }
 
+// @ts-ignore
 async function hasFace(imageBuffer: Buffer) {
   const faces = await detectFaceDetails(imageBuffer);
   return faces?.length ?? 0 > 0 ? true : false;
@@ -38,14 +39,14 @@ interface Rectangle {
   height: number,
 }
 
-async function pixelateZone(image: Buffer, zone: Rectangle, pixelationLevel=5) {
+async function pixelateZone(image: Buffer, zone: Rectangle, pixelationLevel=50) {
   const zoneBuffer = await sharp(image).extract({
     left: zone.x,
     top: zone.y,
     width: zone.width,
     height: zone.height,
   }).toBuffer();
-  const pixelatedZoneBuffer = await sharp(zoneBuffer).blur(100).toBuffer();
+  const pixelatedZoneBuffer = await sharp(zoneBuffer).blur(pixelationLevel).toBuffer();
   const overlay: OverlayOptions = {
     input: pixelatedZoneBuffer,
     left: zone.x,
@@ -58,7 +59,6 @@ async function pixelateFace(imageBuffer: Buffer, face: FaceDetail) {
   if (!face || !face.BoundingBox) return null;
   const { Left, Top, Width, Height } = face.BoundingBox;
   if (!Left || !Top || !Width || !Height) return null;
-  console.log('BB', face.BoundingBox);
   const { width, height } = await sharp(imageBuffer).metadata();
   if (!width || !height) return null;
   const rectangle: Rectangle = {
@@ -66,21 +66,11 @@ async function pixelateFace(imageBuffer: Buffer, face: FaceDetail) {
     y: Math.floor(Top * height),
     width: Math.floor(Width * width),
     height: Math.floor(Height * height),
-  }
-  console.log('BB2', {
-    rectangle,
-    width,
-    height,
-  });
+  };
   return pixelateZone(imageBuffer, rectangle);
 }
 
-async function optimizeImage(imageBuffer: Buffer) {
-  return await sharp(imageBuffer).webp().toBuffer();
-}
-
 async function pixelateFaces(imageBuffer: Buffer) {
-  const optimizedImage = optimizeImage(imageBuffer);
   const faceDetails = await detectFaceDetails(imageBuffer);
   if (!faceDetails || faceDetails.length === 0) return null;
   const overlayOptions = await Promise.all(
@@ -91,7 +81,7 @@ async function pixelateFaces(imageBuffer: Buffer) {
   )
   // @ts-ignore
   const filteredOverlays: OverlayOptions[] = overlayOptions.filter((overlayOption) => (overlayOption!==null));
-  return sharp(imageBuffer).composite(filteredOverlays).toBuffer();
+  return sharp(imageBuffer).composite(filteredOverlays).webp().toBuffer();
 }
 
 async function start(filepath: string) {
@@ -133,4 +123,9 @@ async function start(filepath: string) {
   // )
 }
 console.debug("Argumentos:", process.argv);
-start(process.argv[2]);
+const filePath = process.argv[2];
+if (!filePath) {
+  console.error("Agrega un path de archivo");
+  process.exit(1);
+}
+start(filePath);
